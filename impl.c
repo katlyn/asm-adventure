@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // From https://stackoverflow.com/questions/3553296/sizeof-single-struct-member-in-c
 #define member_size(type, member) sizeof(((type *)0)->member)
@@ -58,7 +59,7 @@ struct loadedSegment {
   // A count of the number of segments that branch off of this one.
   long branchCount;
   // An array of pointers to any segments that branch off of this segment
-  segment** branches;
+  loadedSegment** branches;
 };
 
 // A structure that allows us to implement a pseudo-binary tree to easily locate
@@ -88,7 +89,7 @@ long skipString (FILE *f) {
 int loadSegment (FILE *f, segment *data) {
   // segment *data = malloc(sizeof(segment));
 
-  printf("loading segment\n");
+  // printf("loading segment\n");
   
   // Read the statically sized longs
   fread(&data->id,member_size(segment, id), 1, f);
@@ -149,15 +150,29 @@ void insertBranch(sortedSegment* root, sortedSegment* leaf) {
     }
   }
 
-  printf("Leaf %i added under %i\n", leaf->loaded->data->id, r->loaded->data->id);
+  // printf("Leaf %i added under %i\n", leaf->loaded->data->id, r->loaded->data->id);
 }
 
-
-void updateLinks(sortedSegment* root) {
+// Recursively iterate over all items in the tree and update their refereces to
+// each other.
+void updateLinks(sortedSegment* realRoot, sortedSegment* root) {
   if (root->lt) {
-    updateLinks(root->lt);
+    updateLinks(realRoot, root->lt);
   }
-  
+  // If the insertAfter ID is greater than 0, set up links
+  if (root->loaded->data->after > 0) {
+    sortedSegment* after = findBranch(realRoot, root->loaded->data->after);
+    loadedSegment* loaded = after->loaded;
+    loadedSegment** newBranches = malloc(member_size(loadedSegment, branches) * (loaded->branchCount + 1));
+
+    memcpy(newBranches, loaded->branches, member_size(loadedSegment, branches) * loaded->branchCount);
+    free(loaded->branches);
+    loaded->branches = newBranches;
+    loaded->branchCount += 1;
+  }
+  if (root->gt) {
+    updateLinks(realRoot, root->gt);
+  }
 }
 
 // Read the given file into a sortedSegment for easier parsing
@@ -187,16 +202,27 @@ int loadFile (FILE *f, sortedSegment* story) {
     }
     sortedSegment *sorted = malloc(sizeof(sortedSegment));
     sorted->loaded = loaded;
-    printf("%i\n", loaded->data->id);
     insertBranch(story, sorted);
     // sortedSegment *branch = findBranch(story, loaded->data->id);
   }
 
-  printf("ID: %i AFTER: %i\n%s\n%s\n", story->loaded->data->id, story->loaded->data->after, story->loaded->data->keyword, story->loaded->data->text);
-  printf("ID: %i AFTER: %i\n%s\n%s\n", story->gt->loaded->data->id, story->gt->loaded->data->after, story->gt->loaded->data->keyword, story->gt->loaded->data->text);
-  printf("GT: %i LT: %i\n", !story->gt, !story->lt);
+  updateLinks(story, story);
+
+  // printf("ID: %i AFTER: %i\n%s\n%s\n", story->loaded->data->id, story->loaded->data->after, story->loaded->data->keyword, story->loaded->data->text);
+  // printf("ID: %i AFTER: %i\n%s\n%s\n", story->gt->loaded->data->id, story->gt->loaded->data->after, story->gt->loaded->data->keyword, story->gt->loaded->data->text);
+  // printf("GT: %i LT: %i\n", !story->gt, !story->lt);
 
   return 1;
+}
+
+int gameLoop (sortedSegment* story, int startingSegment) {
+  int currentId = startingSegment;
+  sortedSegment* currentSegment;
+  while ((currentSegment = findBranch(story, currentId)) != NULL) {
+    printf("%s\n", currentSegment->loaded->data->text);
+    currentId = -1;
+  }
+  return (long)currentSegment;
 }
 
 // ----- Main Logic ----- //
@@ -223,6 +249,8 @@ int main (int argc, char** argv) {
     printf("Error loading story");
     return 1;
   }
+
+  gameLoop(story, 0);
 
   return 0;
 }
