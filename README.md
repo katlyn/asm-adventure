@@ -1,7 +1,7 @@
 # Assembly Adventures
 
 ## Topic
-Creating an extensible assembly-friendly standard for text-adventure games.
+Creating an extensible assembly-friendly standard for text-adventure games. At its base, this project aims to create an easy binary format for interactive stories.
 
 ## Goals
 - Create a data structure that is easy to implement in assembly.
