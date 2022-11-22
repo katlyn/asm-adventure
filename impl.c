@@ -52,24 +52,24 @@ struct segment {
 // Once a segment is loaded into memory, a separate data structure will need to
 // represent it - this allows us to build the tree of segments that compose
 // the whole story.
-typedef struct loadedSegment loadedSegment;
-struct loadedSegment {
-  // Pointer to the data of the current segment
-  segment* data;
-  // A count of the number of segments that branch off of this one.
-  long branchCount;
-  // An array of pointers to any segments that branch off of this segment
-  loadedSegment** branches;
-};
+// typedef struct loadedSegment loadedSegment;
+// struct loadedSegment {
+//   // Pointer to the data of the current segment
+//   segment* data;
+// };
 
 // A structure that allows us to implement a pseudo-binary tree to easily locate
 // segments of a specific ID. This may seem redundant in some cases, but overall
 // makes loading the segments easier.
 typedef struct sortedSegment sortedSegment;
 struct sortedSegment {
-  loadedSegment* loaded;
+  segment* loaded;
   sortedSegment* lt;
   sortedSegment* gt;
+  // A count of the number of segments that branch off of this one.
+  size_t branchCount;
+  // An array of pointers to any segments that branch off of this segment
+  sortedSegment** branches;
 };
 
 // ----- Story Loading Utilities ----- //
@@ -118,8 +118,8 @@ int loadSegment (FILE *f, segment *data) {
 
 sortedSegment* findBranch(sortedSegment* root, long id) {
   sortedSegment* r = root;
-  while (r && r->loaded->data->id != id) {
-    if (r->loaded->data->id > id) {
+  while (r && r->loaded->id != id) {
+    if (r->loaded->id > id) {
       r = r->lt;
     } else {
       r = r->gt;
@@ -132,8 +132,8 @@ void insertBranch(sortedSegment* root, sortedSegment* leaf) {
   // TODO: This will not handle duplicate IDs correctly and will likely cause
   //  memory leaks.
   sortedSegment* r = root;
-  while (r && r->loaded->data->id != leaf->loaded->data->id) {
-    if (r->loaded->data->id > leaf->loaded->data->id) {
+  while (r && r->loaded->id != leaf->loaded->id) {
+    if (r->loaded->id > leaf->loaded->id) {
       if (r->lt == NULL) {
         r->lt = leaf;
         break;
@@ -153,22 +153,33 @@ void insertBranch(sortedSegment* root, sortedSegment* leaf) {
   // printf("Leaf %i added under %i\n", leaf->loaded->data->id, r->loaded->data->id);
 }
 
-// Recursively iterate over all items in the tree and update their refereces to
+// Recursively iterate over all items in the tree and update their references to
 // each other.
 void updateLinks(sortedSegment* realRoot, sortedSegment* root) {
   if (root->lt) {
     updateLinks(realRoot, root->lt);
   }
   // If the insertAfter ID is greater than 0, set up links
-  if (root->loaded->data->after > 0) {
-    sortedSegment* after = findBranch(realRoot, root->loaded->data->after);
-    loadedSegment* loaded = after->loaded;
-    loadedSegment** newBranches = malloc(member_size(loadedSegment, branches) * (loaded->branchCount + 1));
+  // Negatives are reserved for ending segments
+  if (root->loaded->after >= 0) {
+    sortedSegment* after = findBranch(realRoot, root->loaded->after);
 
-    memcpy(newBranches, loaded->branches, member_size(loadedSegment, branches) * loaded->branchCount);
-    free(loaded->branches);
-    loaded->branches = newBranches;
-    loaded->branchCount += 1;
+    int newBranchCount = after->branchCount + 1;
+
+    // Allocate the new array
+    sortedSegment** newBranches = malloc(sizeof(sortedSegment*) * newBranchCount);
+    newBranches[newBranchCount - 1] = root;
+
+    // printf("Updating links for %li: %li total\n", after->loaded->id, after->branchCount);
+
+    // If the old array has data, copy it and then free the memory
+    if (after->branchCount > 0) {
+      memcpy(newBranches, after->branches,sizeof(sortedSegment*) * after->branchCount);
+      free(after->branches);
+    }
+
+    after->branches = newBranches;
+    after->branchCount = newBranchCount;
   }
   if (root->gt) {
     updateLinks(realRoot, root->gt);
@@ -178,30 +189,28 @@ void updateLinks(sortedSegment* realRoot, sortedSegment* root) {
 // Read the given file into a sortedSegment for easier parsing
 int loadFile (FILE *f, sortedSegment* story) {
   // Load the initial segment into the tree
-  loadedSegment *loaded = malloc(sizeof(loadedSegment));
-  loaded->branchCount = 0;
-  loaded->data = malloc(sizeof(segment));
-  int success = loadSegment(f, loaded->data);
+  story->branchCount = 0;
+  story->loaded = malloc(sizeof(segment));
+  int success = loadSegment(f, story->loaded);
 
   if (!success) {
     printf("Unable to load initial segment!\n");
     //return 0;
   }
 
-  story->loaded = loaded;
-
   while (getc(f) != EOF) {
     fseek(f, -1, SEEK_CUR);
-    loaded = malloc(sizeof(loadedSegment));
-    loaded->branchCount = 0;
-    loaded->data = malloc(sizeof(segment));
-    success = loadSegment(f, loaded->data);
+    sortedSegment *sorted = malloc(sizeof(sortedSegment));
+    sorted->lt = NULL;
+    sorted->gt = NULL;
+    sorted->branchCount = 0;
+    sorted->branches = NULL;
+    sorted->loaded = malloc(sizeof(segment));
+    success = loadSegment(f, sorted->loaded);
     if (!success) {
-      printf("At eof, %i, %i\n", ftell(f), feof(f));
+      printf("At eof, %li, %i\n", ftell(f), feof(f));
       // return 0;
     }
-    sortedSegment *sorted = malloc(sizeof(sortedSegment));
-    sorted->loaded = loaded;
     insertBranch(story, sorted);
     // sortedSegment *branch = findBranch(story, loaded->data->id);
   }
@@ -215,12 +224,88 @@ int loadFile (FILE *f, sortedSegment* story) {
   return 1;
 }
 
+// Given a pointer to the root node of a story, free all nodes
+void freeStory (sortedSegment* story) {
+  // Don't double free if we've been passed a null pointer
+  if (!story) {
+    return;
+  }
+
+  freeStory(story->lt);
+  freeStory(story->gt);
+
+  free(story->loaded->keyword);
+  free(story->loaded->text);
+
+  free(story->loaded);
+  free(story->branches);
+
+  free(story);
+}
+
+// Get one line of input, and flush any input that doesn't fit into the provided
+// buffer. Also removes any newline from the end of the string.
+void getInput(char* buff, size_t size) {
+  // Derived from https://stackoverflow.com/a/4023921
+  fgets(buff, size, stdin);
+
+  size_t len = strlen(buff);
+
+  if (buff[len-1] != '\n') {
+    char ch;
+    while (((ch = getchar()) != '\n') && (ch != EOF));
+  } else {
+    buff[len-1] = 0;
+  }
+}
+
 int gameLoop (sortedSegment* story, int startingSegment) {
   int currentId = startingSegment;
-  sortedSegment* currentSegment;
-  while ((currentSegment = findBranch(story, currentId)) != NULL) {
-    printf("%s\n", currentSegment->loaded->data->text);
-    currentId = -1;
+  sortedSegment* currentSegment = findBranch(story, currentId);
+  while (currentSegment) {
+    printf("%s\n", currentSegment->loaded->text);
+    if (currentId < 0) {
+      // Negative IDs will allow the story to specify ending scenarios
+      break;
+    }
+
+    // Get the user's input and check branches
+    char input[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sortedSegment* nextSegment = NULL;
+
+    // Loop until we have a valid match
+    while (1) {
+      getInput(input, 16);
+      // Provide a way to exit the game early if the user wants to
+      if (!strcmp("EXIT_GAME", input)) {
+        return (long) currentSegment;
+      }
+
+      for (size_t i = 0; i < currentSegment->branchCount; ++i) {
+        printf("%s ", currentSegment->branches[i]->loaded->keyword);
+      }
+      printf("\n");
+
+      for (size_t i = 0; i < currentSegment->branchCount; ++i) {
+        sortedSegment* potentialSegment = currentSegment->branches[i];
+        if (!strcmp(input, potentialSegment->loaded->keyword)) {
+          nextSegment = potentialSegment;
+        }
+      }
+
+      // If a valid segment has been found, stop searching and continue
+      if (nextSegment) {
+        printf("Next segment: %li\n",nextSegment->loaded->id);
+        currentSegment = nextSegment;
+        break;
+      } else {
+        printf("UNKNOWN SELECTION\n");
+      }
+    }
+
+    printf("%s\n", input);
+
+    // printf("%s", input);
   }
   return (long)currentSegment;
 }
@@ -239,11 +324,13 @@ int main (int argc, char** argv) {
   }
 
   sortedSegment *story = malloc(sizeof(sortedSegment));
+  story->lt = NULL;
+  story->gt = NULL;
+  story->branchCount = 0;
+  story->branches = NULL;
 
   int success = loadFile(storyFile, story);
   fclose(storyFile);
-
-  // free(story);
 
   if (!success) {
     printf("Error loading story");
@@ -251,6 +338,8 @@ int main (int argc, char** argv) {
   }
 
   gameLoop(story, 0);
+
+  freeStory(story);
 
   return 0;
 }
