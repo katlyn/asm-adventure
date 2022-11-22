@@ -41,6 +41,7 @@ struct segment {
   // Specifies this segment's ID
   long id;
   // The segment that this segment should be available under.
+  // TODO: This would be more flexible as an array.
   long after;
   // This segment's selector text, this will be what the user will type to enter
   // into this segment's context.
@@ -252,7 +253,21 @@ void getInput(char* buff, size_t size) {
 int gameLoop (sortedSegment* startingSegment) {
   sortedSegment* currentSegment = startingSegment;
   while (currentSegment) {
-    printf("%s\n> ", currentSegment->loaded->text);
+    printf("%s\n", currentSegment->loaded->text);
+
+    // If there are no branches off of this segment, exit the loop.
+    if (currentSegment->branchCount == 0) {
+      break;
+    }
+
+    // If there's only one available option, automatically progress to it
+    if (currentSegment->branchCount == 1) {
+      currentSegment = currentSegment->branches[0];
+      continue;
+    }
+
+    // Prompt the user to choose an option
+    printf("> ");
 
     // Get the user's input and check branches
     char input[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
