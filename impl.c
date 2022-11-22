@@ -86,11 +86,7 @@ long skipString (FILE *f) {
 }
 
 // Loads a segment and returns its pointer
-int loadSegment (FILE *f, segment *data) {
-  // segment *data = malloc(sizeof(segment));
-
-  // printf("loading segment\n");
-  
+int loadSegment (FILE *f, segment *data) {  
   // Read the statically sized longs
   fread(&data->id,member_size(segment, id), 1, f);
   fread(&data->after, member_size(segment, after), 1, f);
@@ -149,8 +145,6 @@ void insertBranch(sortedSegment* root, sortedSegment* leaf) {
       }
     }
   }
-
-  // printf("Leaf %i added under %i\n", leaf->loaded->data->id, r->loaded->data->id);
 }
 
 // Recursively iterate over all items in the tree and update their references to
@@ -212,14 +206,9 @@ int loadFile (FILE *f, sortedSegment* story) {
       // return 0;
     }
     insertBranch(story, sorted);
-    // sortedSegment *branch = findBranch(story, loaded->data->id);
   }
 
   updateLinks(story, story);
-
-  // printf("ID: %i AFTER: %i\n%s\n%s\n", story->loaded->data->id, story->loaded->data->after, story->loaded->data->keyword, story->loaded->data->text);
-  // printf("ID: %i AFTER: %i\n%s\n%s\n", story->gt->loaded->data->id, story->gt->loaded->data->after, story->gt->loaded->data->keyword, story->gt->loaded->data->text);
-  // printf("GT: %i LT: %i\n", !story->gt, !story->lt);
 
   return 1;
 }
@@ -259,15 +248,11 @@ void getInput(char* buff, size_t size) {
   }
 }
 
-int gameLoop (sortedSegment* story, int startingSegment) {
-  int currentId = startingSegment;
-  sortedSegment* currentSegment = findBranch(story, currentId);
+// Start a story at the given segment.
+int gameLoop (sortedSegment* startingSegment) {
+  sortedSegment* currentSegment = startingSegment;
   while (currentSegment) {
-    printf("%s\n", currentSegment->loaded->text);
-    if (currentId < 0) {
-      // Negative IDs will allow the story to specify ending scenarios
-      break;
-    }
+    printf("%s\n> ", currentSegment->loaded->text);
 
     // Get the user's input and check branches
     char input[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -281,11 +266,7 @@ int gameLoop (sortedSegment* story, int startingSegment) {
         return (long) currentSegment;
       }
 
-      for (size_t i = 0; i < currentSegment->branchCount; ++i) {
-        printf("%s ", currentSegment->branches[i]->loaded->keyword);
-      }
-      printf("\n");
-
+      // Check each of the possible branches to see if their keyword matches
       for (size_t i = 0; i < currentSegment->branchCount; ++i) {
         sortedSegment* potentialSegment = currentSegment->branches[i];
         if (!strcmp(input, potentialSegment->loaded->keyword)) {
@@ -295,17 +276,19 @@ int gameLoop (sortedSegment* story, int startingSegment) {
 
       // If a valid segment has been found, stop searching and continue
       if (nextSegment) {
-        printf("Next segment: %li\n",nextSegment->loaded->id);
         currentSegment = nextSegment;
         break;
       } else {
-        printf("UNKNOWN SELECTION\n");
+        printf("UNKNOWN SELECTION, POSSIBLE SELECTIONS: ");
+
+        for (size_t i = 0; i < currentSegment->branchCount; ++i) {
+          printf("%s ", currentSegment->branches[i]->loaded->keyword);
+        }
+        printf("\n> ");
       }
     }
-
-    printf("%s\n", input);
-
-    // printf("%s", input);
+    // Provide some space between segments
+    printf("\n");
   }
   return (long)currentSegment;
 }
@@ -337,7 +320,7 @@ int main (int argc, char** argv) {
     return 1;
   }
 
-  gameLoop(story, 0);
+  gameLoop(findBranch(story, 0));
 
   freeStory(story);
 
