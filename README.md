@@ -23,6 +23,12 @@ nasm story.asm -o story.bin
 ```
 This basic implementation allows early exit of the game at any time by entering `EXIT_GAME` and pressing enter.
 
+Under the hood, the basic implementation does a few things to be able to run a story:
+1. The path provided as the first argument to the program is loaded into memory.
+1. Reading each segment from the file sequentially, a binary tree is constructed, similar to the structure that is typically used for treesort. This binary tree is created based on each segment's ID.
+1. The binary tree is walked, and each segment is updated with a list of pointers to segments that follow it.
+1. Once all links between segments have been created, the game loop starts at segment ID 0 and begins prompting the user for their choice after printing each segment's contents.
+
 ## Story structure
 Currently stories are stored in a binary file. These can be created using assembly as an easy but low-tech solution.
 
